@@ -195,20 +195,23 @@ function getNormalizedUser(decodedToken) {
   };
 }
 
-function syncUserRecord(user) {
+async function syncUserRecord(user) {
   if (!user?.id) {
-    return;
+    return null;
   }
 
-  upsertUser({
-    id: user.id,
-    email: user.email || null,
-    displayName: user.name || null,
-    avatarUrl: user.picture || null,
-    touchLastSeen: true,
-  }).catch((error) => {
+  try {
+    return await upsertUser({
+      id: user.id,
+      email: user.email || null,
+      displayName: user.name || null,
+      avatarUrl: user.picture || null,
+      touchLastSeen: true,
+    });
+  } catch (error) {
     console.error('User sync error:', error.message);
-  });
+    return null;
+  }
 }
 
 function createAuthRoutes({ gameEngine = null } = {}) {
@@ -261,7 +264,7 @@ function createAuthRoutes({ gameEngine = null } = {}) {
       const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
       const { data: userInfo } = await oauth2.userinfo.get();
 
-      syncUserRecord({
+      await syncUserRecord({
         id: normalizeText(userInfo.id, 128),
         name: normalizeText(userInfo.name, 255),
         email: normalizeEmail(userInfo.email),
@@ -287,7 +290,7 @@ function createAuthRoutes({ gameEngine = null } = {}) {
     }
   });
 
-  router.get('/me', (req, res) => {
+  router.get('/me', async (req, res) => {
     const token = req.cookies?.[AUTH_COOKIE_NAME];
     if (!token) {
       return res.status(401).json({ error: 'Not authenticated' });
@@ -296,7 +299,7 @@ function createAuthRoutes({ gameEngine = null } = {}) {
     try {
       const decoded = jwt.verify(token, config.JWT_SECRET);
       const user = getNormalizedUser(decoded);
-      syncUserRecord(user);
+      await syncUserRecord(user);
       trackSilentEvent(req, 'page_view', user);
       trackSilentEvent(req, 'connect', user);
       res.json({
