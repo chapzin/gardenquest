@@ -152,40 +152,20 @@
         </div>
     </aside>
 
-    <aside class="chat-widget" id="chatWidget">
-        <button class="chat-collapsed-toggle" id="chatCollapsedToggle" type="button" aria-expanded="false" hidden>
-            <span>Chat dos jogadores</span>
-            <span class="chat-collapsed-badge" id="chatCollapsedBadge" hidden>0</span>
-        </button>
-
-        <div class="chat-panel" id="chatPanel">
-            <div class="chat-header">
-                <div class="chat-title-wrap">
-                    <span class="chat-title">Chat dos jogadores</span>
-                    <span class="chat-subtitle">A conversa da IA nao aparece aqui.</span>
-                </div>
-                <div class="chat-header-actions">
-                    <span class="chat-counter" id="chatCounter">0/72</span>
-                    <button class="chat-minimize-btn" id="chatMinimizeBtn" type="button" aria-label="Minimizar chat">-</button>
-                </div>
-            </div>
-
-            <div class="chat-feed" id="chatFeed">
-                <p class="chat-empty">As mensagens dos jogadores aparecem aqui.</p>
-            </div>
-
-            <form class="chat-form" id="chatForm">
-                <input
-                    class="chat-input"
-                    id="chatInput"
-                    type="text"
-                    maxlength="72"
-                    autocomplete="off"
-                    placeholder="Digite e pressione Enter"
-                >
-                <p class="chat-help">T abre para digitar. Esc sai da escrita.</p>
-            </form>
-        </div>
+    <aside class="chat-box" id="chatBox">
+        <div class="chat-feed" id="chatFeed"></div>
+        <form class="chat-form" id="chatForm">
+            <span class="chat-input-hint">[T]</span>
+            <input
+                class="chat-input"
+                id="chatInput"
+                type="text"
+                maxlength="72"
+                autocomplete="off"
+                placeholder="Digite aqui..."
+            >
+            <span class="chat-counter" id="chatCounter">0/72</span>
+        </form>
     </aside>
 
     <aside class="mobile-controls" id="mobileControls" hidden aria-label="Controles de movimento mobile">

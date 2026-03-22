@@ -15,18 +15,19 @@
     const STATE_POLL_INTERVAL_MS = 200;
     const STATE_POLL_BACKOFF_MS = 1000;
     const INPUT_SYNC_INTERVAL_MS = 80;
+    const CHAT_POLL_INTERVAL_MS = 1000;
+    const LEADERBOARD_POLL_INTERVAL_MS = 5000;
     const SELF_AUTHORITY_PREDICTION_MAX_SECONDS = 0.35;
     const SELF_AUTHORITY_MOVING_DEADZONE = 1.1;
     const SELF_AUTHORITY_MOVING_SNAP_DISTANCE = 9;
     const SELF_AUTHORITY_MOVING_POSITION_STRENGTH = 2.4;
     const SELF_AUTHORITY_MOVING_ROTATION_STRENGTH = 7;
     const LEADERBOARD_RENDER_LIMIT = 5;
-    const PLAYER_CHAT_RENDER_LIMIT = 20;
+    const PLAYER_CHAT_RENDER_LIMIT = 50;
     const DEFAULT_OUTFIT_COLOR = '#2563eb';
     const PLAYER_NICKNAME_MAX_LENGTH = 24;
     const SOCCER_GOAL_CELEBRATION_MS = 3000;
     const PROFILE_STORAGE_KEY_PREFIX = 'garden-quest-player-profile:';
-    const CHAT_WIDGET_STORAGE_KEY = 'garden-quest-player-chat:minimized';
     const HUD_CONTROLS_STORAGE_KEY = 'garden-quest-hud-controls:minimized';
     const TOUCH_MOVEMENT_KEYS = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowleft', 'arrowdown', 'arrowright', 'shift']);
     const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || Number(navigator.maxTouchPoints || 0) > 0;
@@ -39,15 +40,12 @@
     const loadingScreen = document.getElementById('loadingScreen');
     const mobileControls = document.getElementById('mobileControls');
     const canvas = document.getElementById('gameCanvas');
-    const chatWidget = document.getElementById('chatWidget');
-    const chatPanel = document.getElementById('chatPanel');
+    const chatBox = document.getElementById('chatBox');
     const chatFeed = document.getElementById('chatFeed');
     const chatForm = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
     const chatCounter = document.getElementById('chatCounter');
-    const chatCollapsedToggle = document.getElementById('chatCollapsedToggle');
-    const chatCollapsedBadge = document.getElementById('chatCollapsedBadge');
-    const chatMinimizeBtn = document.getElementById('chatMinimizeBtn');
+    const chatRenderedIds = new Set();
     const leaderboardBody = document.getElementById('leaderboardBody');
     const leaderboardUpdated = document.getElementById('leaderboardUpdated');
     const soccerLeaderboardBody = document.getElementById('soccerLeaderboardBody');
@@ -63,7 +61,6 @@
     const profileSaveBtn = document.getElementById('profileSaveBtn');
     let chatMaxChars = Number(chatInput?.maxLength) || 72;
     let nicknameMaxChars = Number(profileNicknameInput?.maxLength) || PLAYER_NICKNAME_MAX_LENGTH;
-    let isChatMinimized = loadChatWidgetMinimized();
     let isHudControlsMinimized = loadHudControlsMinimized();
 
     const defaultProfile = buildDefaultProfile(user);
@@ -197,18 +194,35 @@
             && sanitizeHexColor(leftProfile?.outfitColor) === sanitizeHexColor(rightProfile?.outfitColor);
     }
 
-    function loadChatWidgetMinimized() {
-        try {
-            return window.localStorage.getItem(CHAT_WIDGET_STORAGE_KEY) === '1';
-        } catch (error) {
-            return false;
-        }
-    }
+    function buildChatLineNode(entry) {
+        const line = document.createElement('p');
+        line.className = 'chat-line';
+        line.dataset.chatId = String(entry?.id || '');
 
-    function saveChatWidgetMinimized(value) {
-        try {
-            window.localStorage.setItem(CHAT_WIDGET_STORAGE_KEY, value ? '1' : '0');
-        } catch (error) {}
+        const type = entry?.type || 'player';
+        const isSelf = Boolean(entry?.isSelf);
+
+        const ts = document.createElement('time');
+        ts.className = 'chat-ts';
+        ts.textContent = formatClockTimestamp(
+            typeof entry?.createdAt === 'number' ? new Date(entry.createdAt) : entry?.createdAt
+        );
+
+        const name = document.createElement('span');
+        name.className = 'chat-name';
+        if (type === 'npc') {
+            name.classList.add('chat-name--npc');
+            name.textContent = `[NPC] ${entry?.playerName || 'Jardineiro'}:`;
+        } else if (isSelf) {
+            name.classList.add('chat-name--self');
+            name.textContent = `${entry?.playerName || 'Jogador'}:`;
+        } else {
+            name.classList.add('chat-name--player');
+            name.textContent = `${entry?.playerName || 'Jogador'}:`;
+        }
+
+        line.append(ts, name, ` ${entry?.message || ''}`);
+        return line;
     }
 
     function loadHudControlsMinimized() {
@@ -344,37 +358,10 @@
         return (chatFeed.scrollHeight - chatFeed.scrollTop - chatFeed.clientHeight) < 32;
     }
 
-    function updateCollapsedChatBadge() {
-        if (!chatCollapsedBadge) return;
-
-        const boundedCount = Math.min(unreadChatCount, 99);
-        chatCollapsedBadge.textContent = String(boundedCount);
-        chatCollapsedBadge.hidden = boundedCount === 0;
-    }
-
-    function setChatMinimized(nextValue) {
-        isChatMinimized = Boolean(nextValue);
-
-        if (chatWidget) {
-            chatWidget.classList.toggle('minimized', isChatMinimized);
+    function setChatFocused(focused) {
+        if (chatBox) {
+            chatBox.classList.toggle('focused', focused);
         }
-
-        if (chatPanel) {
-            chatPanel.hidden = isChatMinimized;
-        }
-
-        if (chatCollapsedToggle) {
-            chatCollapsedToggle.hidden = !isChatMinimized;
-            chatCollapsedToggle.setAttribute('aria-expanded', String(!isChatMinimized));
-        }
-
-        if (!isChatMinimized) {
-            unreadChatCount = 0;
-            updateCollapsedChatBadge();
-            window.requestAnimationFrame(scrollChatFeedToBottom);
-        }
-
-        saveChatWidgetMinimized(isChatMinimized);
     }
 
     function setHudControlsMinimized(nextValue) {
@@ -470,71 +457,58 @@
         });
     }
 
-    function buildChatEntryNode(entry) {
-        const item = document.createElement('article');
-        item.className = 'chat-entry';
-
-        if (entry?.isSelf) {
-            item.classList.add('self');
-        }
-
-        const meta = document.createElement('div');
-        meta.className = 'chat-entry-meta';
-
-        const author = document.createElement('span');
-        author.className = 'chat-entry-author';
-        author.textContent = entry?.playerName || 'Jogador';
-
-        const time = document.createElement('span');
-        time.className = 'chat-entry-time';
-        time.textContent = formatClockTimestamp(entry?.createdAt);
-
-        const message = document.createElement('p');
-        message.className = 'chat-entry-message';
-        message.textContent = entry?.message || '';
-
-        meta.append(author, time);
-        item.append(meta, message);
-        return item;
-    }
-
     function renderPlayerChat(chatState) {
         if (!chatFeed) return;
 
         const entries = Array.isArray(chatState?.entries)
             ? chatState.entries.slice(-PLAYER_CHAT_RENDER_LIMIT)
             : [];
-        const shouldStickToBottom = isChatFeedNearBottom();
-        const latestEntryId = entries.reduce((highestId, entry) => {
-            const entryId = Number(entry?.id) || 0;
-            return Math.max(highestId, entryId);
-        }, 0);
 
-        if (hasRenderedPlayerChat && isChatMinimized && latestEntryId > lastChatEntryId) {
-            unreadChatCount += entries.filter((entry) => (Number(entry?.id) || 0) > lastChatEntryId).length;
-            updateCollapsedChatBadge();
+        if (entries.length === 0 && chatRenderedIds.size === 0) {
+            if (!chatFeed.querySelector('.chat-empty')) {
+                chatFeed.replaceChildren();
+                const emptyState = document.createElement('p');
+                emptyState.className = 'chat-empty';
+                emptyState.textContent = 'As mensagens aparecem aqui.';
+                chatFeed.appendChild(emptyState);
+            }
+            hasRenderedPlayerChat = true;
+            return;
         }
 
-        chatFeed.replaceChildren();
+        const shouldStickToBottom = isChatFeedNearBottom();
+        let addedNew = false;
 
-        if (entries.length === 0) {
-            const emptyState = document.createElement('p');
-            emptyState.className = 'chat-empty';
-            emptyState.textContent = 'As mensagens dos jogadores aparecem aqui.';
-            chatFeed.appendChild(emptyState);
-        } else {
-            const fragment = document.createDocumentFragment();
-            entries.forEach((entry) => {
-                fragment.appendChild(buildChatEntryNode(entry));
-            });
+        const emptyEl = chatFeed.querySelector('.chat-empty');
+        if (emptyEl && entries.length > 0) {
+            emptyEl.remove();
+        }
+
+        const fragment = document.createDocumentFragment();
+        for (const entry of entries) {
+            const entryId = Number(entry?.id) || 0;
+            if (entryId && chatRenderedIds.has(entryId)) continue;
+
+            fragment.appendChild(buildChatLineNode(entry));
+            if (entryId) chatRenderedIds.add(entryId);
+            addedNew = true;
+        }
+
+        if (addedNew) {
             chatFeed.appendChild(fragment);
         }
 
-        if (shouldStickToBottom || isChatMinimized || !hasRenderedPlayerChat) {
+        while (chatFeed.children.length > PLAYER_CHAT_RENDER_LIMIT) {
+            const oldest = chatFeed.firstElementChild;
+            const oldId = Number(oldest?.dataset?.chatId) || 0;
+            if (oldId) chatRenderedIds.delete(oldId);
+            oldest.remove();
+        }
+
+        if ((shouldStickToBottom || !hasRenderedPlayerChat) && addedNew) {
             scrollChatFeedToBottom();
         }
 
-        lastChatEntryId = latestEntryId;
         hasRenderedPlayerChat = true;
     }
 
@@ -1071,6 +1045,8 @@
         playerRunSpeed: 12.5,
         aiTargetPosition: new THREE.Vector3(-3, 0, 15),
         aiTargetRotationY: Math.PI,
+        aiVelocity: { x: 0, z: 0 },
+        aiLastUpdateTime: 0,
         remotePresenceInitialized: false,
     };
 
@@ -1083,11 +1059,17 @@
     let lastInputSignature = '0.000:0.000:0';
     let lastMovementErrorAt = 0;
     let statePollTimeout = null;
-    let unreadChatCount = 0;
-    let lastChatEntryId = 0;
+    let chatPollTimeout = null;
+    let leaderboardPollTimeout = null;
     let hasRenderedPlayerChat = false;
     let lastSoccerGoalSequence = null;
     let soccerBallCarrierId = '';
+    let cachedInitData = null;
+    let gameSocket = null;
+    let wsReconnectTimeout = null;
+    let wsReconnectAttempts = 0;
+    const WS_MAX_RECONNECT_ATTEMPTS = 5;
+    const WS_RECONNECT_BASE_MS = 1000;
     const activeTouchMovementPointers = new Map();
 
     function formatInputSignature(input) {
@@ -1168,6 +1150,11 @@
     }
 
     async function sendCommand(type, payload = {}, { suppressErrorToast = false } = {}) {
+        if (gameSocket && gameSocket.readyState === WebSocket.OPEN) {
+            gameSocket.send(JSON.stringify({ type: 'command', data: { type, payload } }));
+            return { ok: true };
+        }
+
         const response = await fetch(`${getApiUrl()}/api/v1/ai-game/command`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1397,10 +1384,6 @@
             closeProfilePanel();
         }
 
-        if (isChatMinimized) {
-            setChatMinimized(false);
-        }
-
         if (!isChatOpen) {
             isChatOpen = true;
             Object.keys(keys).forEach((key) => {
@@ -1415,10 +1398,7 @@
             }
         }
 
-        if (chatPanel) {
-            chatPanel.classList.add('focused');
-        }
-
+        setChatFocused(true);
         updateChatCounter();
     }
 
@@ -1426,9 +1406,7 @@
         const wasChatOpen = isChatOpen;
         isChatOpen = false;
 
-        if (chatPanel) {
-            chatPanel.classList.remove('focused');
-        }
+        setChatFocused(false);
 
         if (clearInput) {
             chatInput.value = '';
@@ -1600,22 +1578,9 @@
         deactivateChatInputMode({ blurInput: false });
     });
     updateChatCounter();
-    updateCollapsedChatBadge();
-    setChatMinimized(isChatMinimized);
     setHudControlsMinimized(isHudControlsMinimized);
     setMobileControlsVisibility();
     bindMobileMovementControls();
-
-    if (chatCollapsedToggle) {
-        chatCollapsedToggle.addEventListener('click', openChat);
-    }
-
-    if (chatMinimizeBtn) {
-        chatMinimizeBtn.addEventListener('click', () => {
-            closeChat(false);
-            setChatMinimized(true);
-        });
-    }
 
     if (hudControlsToggleBtn) {
         hudControlsToggleBtn.addEventListener('click', () => {
@@ -1921,23 +1886,24 @@
             actionHud.update(snapshot.self);
         }
 
-        if (snapshot.settings) {
-            if (Number.isFinite(snapshot.settings.playerMoveSpeed)) {
-                stateSync.playerMoveSpeed = snapshot.settings.playerMoveSpeed;
+        const settings = snapshot.settings || cachedInitData?.settings;
+        if (settings) {
+            if (Number.isFinite(settings.playerMoveSpeed)) {
+                stateSync.playerMoveSpeed = settings.playerMoveSpeed;
             }
 
-            if (Number.isFinite(snapshot.settings.playerRunSpeed)) {
-                stateSync.playerRunSpeed = snapshot.settings.playerRunSpeed;
+            if (Number.isFinite(settings.playerRunSpeed)) {
+                stateSync.playerRunSpeed = settings.playerRunSpeed;
             }
 
-            if (Number.isFinite(snapshot.settings.chatMaxChars) && snapshot.settings.chatMaxChars > 0) {
-                chatMaxChars = snapshot.settings.chatMaxChars;
+            if (Number.isFinite(settings.chatMaxChars) && settings.chatMaxChars > 0) {
+                chatMaxChars = settings.chatMaxChars;
                 chatInput.maxLength = String(chatMaxChars);
                 updateChatCounter();
             }
 
-            if (Number.isFinite(snapshot.settings.nicknameMaxChars) && snapshot.settings.nicknameMaxChars > 0) {
-                nicknameMaxChars = snapshot.settings.nicknameMaxChars;
+            if (Number.isFinite(settings.nicknameMaxChars) && settings.nicknameMaxChars > 0) {
+                nicknameMaxChars = settings.nicknameMaxChars;
                 if (profileNicknameInput) {
                     profileNicknameInput.maxLength = String(nicknameMaxChars);
                 }
@@ -1945,11 +1911,24 @@
         }
 
         if (snapshot.ai && snapshot.ai.position) {
+            const aiPrevX = stateSync.aiTargetPosition.x;
+            const aiPrevZ = stateSync.aiTargetPosition.z;
             stateSync.aiTargetPosition.set(
                 snapshot.ai.position.x || 0,
                 snapshot.ai.position.y || 0,
                 snapshot.ai.position.z || 0
             );
+            const aiNow = performance.now();
+            const aiDt = (aiNow - (stateSync.aiLastUpdateTime || aiNow)) / 1000;
+            if (aiDt > 0.01 && aiDt < 2) {
+                stateSync.aiVelocity = {
+                    x: (stateSync.aiTargetPosition.x - aiPrevX) / aiDt,
+                    z: (stateSync.aiTargetPosition.z - aiPrevZ) / aiDt,
+                };
+            } else {
+                stateSync.aiVelocity = { x: 0, z: 0 };
+            }
+            stateSync.aiLastUpdateTime = aiNow;
             if (typeof snapshot.ai.rotationY === 'number') {
                 stateSync.aiTargetRotationY = snapshot.ai.rotationY;
             }
@@ -1963,38 +1942,37 @@
             updateActorSpeech(aiUi, snapshot.ai.speechVisible ? snapshot.ai.speech : '');
         }
 
-        if (snapshot.world && Array.isArray(snapshot.world.trees)) {
-            world.syncTreeState(snapshot.world.trees);
+        const staticWorld = cachedInitData?.world;
+        const dynamicWorld = snapshot.world;
+
+        if (dynamicWorld && Array.isArray(dynamicWorld.trees)) {
+            world.syncTreeState(dynamicWorld.trees);
         }
 
-        if (snapshot.world) {
-            world.syncDroppedApples(snapshot.world.droppedApples);
+        if (dynamicWorld) {
+            world.syncDroppedApples(dynamicWorld.droppedApples);
         }
 
-        if (snapshot.world && Array.isArray(snapshot.world.graves)) {
-            world.syncGraves(snapshot.world.graves);
+        if (dynamicWorld && Array.isArray(dynamicWorld.graves)) {
+            world.syncGraves(dynamicWorld.graves);
         }
 
-        if (snapshot.world && snapshot.world.soccer) {
-            soccerBallCarrierId = String(snapshot.world.soccer.ball?.possessedByActorId || '').trim();
-            world.syncSoccerState(snapshot.world.soccer);
-            handleSoccerGoalEvent(snapshot.world.soccer.lastGoalEvent);
+        if (dynamicWorld && dynamicWorld.soccer) {
+            const mergedSoccer = staticWorld?.soccer
+                ? Object.assign({}, staticWorld.soccer, dynamicWorld.soccer)
+                : dynamicWorld.soccer;
+            soccerBallCarrierId = String(dynamicWorld.soccer.ball?.possessedByActorId || '').trim();
+            world.syncSoccerState(mergedSoccer);
+            handleSoccerGoalEvent(dynamicWorld.soccer.lastGoalEvent);
         }
 
-        if (snapshot.world && Number.isFinite(snapshot.world.bounds)) {
-            stateSync.worldBounds = snapshot.world.bounds;
-            world.setWorldBounds(snapshot.world.bounds);
+        if (staticWorld && Number.isFinite(staticWorld.bounds)) {
+            stateSync.worldBounds = staticWorld.bounds;
+            world.setWorldBounds(staticWorld.bounds);
+        } else if (dynamicWorld && Number.isFinite(dynamicWorld.bounds)) {
+            stateSync.worldBounds = dynamicWorld.bounds;
+            world.setWorldBounds(dynamicWorld.bounds);
         }
-
-        if (snapshot.leaderboard) {
-            renderLeaderboard(snapshot.leaderboard);
-        }
-
-        if (snapshot.soccerLeaderboard) {
-            renderSoccerLeaderboard(snapshot.soccerLeaderboard);
-        }
-
-        renderPlayerChat(snapshot.playerChat);
 
         const activeRemoteIds = new Set();
         const selfId = snapshot.self?.id || user.id;
@@ -2017,11 +1995,24 @@
             }
 
             const remoteState = remotePlayers.get(playerState.id);
+            const prevX = remoteState.targetPosition.x;
+            const prevZ = remoteState.targetPosition.z;
             remoteState.targetPosition.set(
                 playerState.position.x || 0,
                 playerState.position.y || 0,
                 playerState.position.z || 0
             );
+            const now = performance.now();
+            const dt = (now - (remoteState.lastUpdateTime || now)) / 1000;
+            if (dt > 0.01 && dt < 2) {
+                remoteState.velocity = {
+                    x: (remoteState.targetPosition.x - prevX) / dt,
+                    z: (remoteState.targetPosition.z - prevZ) / dt,
+                };
+            } else {
+                remoteState.velocity = { x: 0, z: 0 };
+            }
+            remoteState.lastUpdateTime = now;
             remoteState.targetRotationY = typeof playerState.rotationY === 'number'
                 ? playerState.rotationY
                 : remoteState.targetRotationY;
@@ -2048,6 +2039,141 @@
         });
 
         stateSync.remotePresenceInitialized = true;
+    }
+
+    function connectGameSocket() {
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = new URL(getApiUrl()).host;
+        const wsUrl = `${wsProtocol}//${wsHost}/ws/game`;
+
+        try {
+            gameSocket = new WebSocket(wsUrl);
+        } catch (err) {
+            console.warn('WebSocket connection failed:', err.message);
+            fallbackToPolling();
+            return;
+        }
+
+        gameSocket.onopen = () => {
+            console.log('WebSocket connected');
+            wsReconnectAttempts = 0;
+
+            // Stop HTTP polling since WS is active
+            if (statePollTimeout) {
+                clearTimeout(statePollTimeout);
+                statePollTimeout = null;
+            }
+            if (chatPollTimeout) {
+                clearTimeout(chatPollTimeout);
+                chatPollTimeout = null;
+            }
+            if (leaderboardPollTimeout) {
+                clearTimeout(leaderboardPollTimeout);
+                leaderboardPollTimeout = null;
+            }
+        };
+
+        gameSocket.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                switch (msg.type) {
+                    case 'init':
+                        if (msg.data) {
+                            cachedInitData = msg.data;
+                        }
+                        break;
+                    case 'state':
+                        if (msg.data) {
+                            applySnapshot(msg.data);
+                        }
+                        break;
+                    case 'chat':
+                        if (msg.data) {
+                            renderPlayerChat(msg.data);
+                        }
+                        break;
+                    case 'leaderboard':
+                        if (msg.data) {
+                            if (msg.data.leaderboard) {
+                                renderTableLeaderboard(leaderboardBody, leaderboardUpdated, msg.data.leaderboard, {
+                                    emptyText: 'Nenhum jogador no placar.',
+                                    valueClassName: 'lb-score',
+                                    valueFormatter: (entry) => entry.currentScore ?? 0,
+                                });
+                            }
+                            if (msg.data.soccerLeaderboard) {
+                                renderTableLeaderboard(soccerLeaderboardBody, soccerLeaderboardUpdated, msg.data.soccerLeaderboard, {
+                                    emptyText: 'Nenhum gol marcado.',
+                                    valueClassName: 'lb-goals',
+                                    valueFormatter: (entry) => entry.soccerGoals ?? 0,
+                                });
+                            }
+                        }
+                        break;
+                    case 'command_result':
+                        break;
+                }
+            } catch (err) {}
+        };
+
+        gameSocket.onclose = () => {
+            console.log('WebSocket disconnected');
+            gameSocket = null;
+
+            if (wsReconnectAttempts < WS_MAX_RECONNECT_ATTEMPTS) {
+                wsReconnectAttempts++;
+                const delay = WS_RECONNECT_BASE_MS * wsReconnectAttempts;
+                console.log(`Reconnecting in ${delay}ms (attempt ${wsReconnectAttempts}/${WS_MAX_RECONNECT_ATTEMPTS})`);
+                wsReconnectTimeout = setTimeout(connectGameSocket, delay);
+            } else {
+                console.log('Max reconnect attempts reached, falling back to HTTP polling');
+                fallbackToPolling();
+            }
+        };
+
+        gameSocket.onerror = () => {
+            // onclose will be called after this
+        };
+    }
+
+    function fallbackToPolling() {
+        gameSocket = null;
+        fetchGameState();
+        fetchChatState();
+        fetchLeaderboardState();
+    }
+
+    async function fetchChatState() {
+        try {
+            const response = await fetch(`${getApiUrl()}/api/v1/ai-game/chat`, { credentials: 'include' });
+            if (!response.ok) return;
+            const chatData = await response.json();
+            renderPlayerChat(chatData);
+        } catch (err) {}
+        chatPollTimeout = setTimeout(fetchChatState, CHAT_POLL_INTERVAL_MS);
+    }
+
+    async function fetchLeaderboardState() {
+        try {
+            const response = await fetch(`${getApiUrl()}/api/v1/ai-game/leaderboard`, { credentials: 'include' });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (data.leaderboard) {
+                renderTableLeaderboard(leaderboardBody, leaderboardUpdated, data.leaderboard, {
+                    emptyText: 'Nenhum jogador no placar.',
+                    valueClassName: 'lb-score',
+                    valueFormatter: (entry) => entry.currentScore ?? 0,
+                });
+            }
+            if (data.soccerLeaderboard) {
+                renderTableLeaderboard(soccerLeaderboardBody, soccerLeaderboardUpdated, data.soccerLeaderboard, {
+                    emptyText: 'Nenhum gol marcado.',
+                    valueClassName: 'lb-goals',
+                    valueFormatter: (entry) => entry.soccerGoals ?? 0,
+                });
+            }
+        } catch (err) {}
+        leaderboardPollTimeout = setTimeout(fetchLeaderboardState, LEADERBOARD_POLL_INTERVAL_MS);
     }
 
     async function fetchGameState() {
@@ -2117,7 +2243,20 @@
     saveStoredProfile(user, initialProfile);
     updateCamera(0, true);
 
+    try {
+        const initResp = await fetch(`${getApiUrl()}/api/v1/ai-game/init`, { credentials: 'include' });
+        if (initResp.ok) {
+            cachedInitData = await initResp.json();
+        }
+    } catch (err) {
+        console.warn('Init fetch failed, will use inline state:', err.message);
+    }
+
+    connectGameSocket();
+    // Start HTTP polling as initial fallback until WS connects
     fetchGameState();
+    fetchChatState();
+    fetchLeaderboardState();
     setInterval(flushMovementInput, INPUT_SYNC_INTERVAL_MS);
 
     function animate() {
@@ -2153,10 +2292,10 @@
                     rotationStrength: 10,
                 }
         );
-        aiPlayer.updateRemote(delta, stateSync.aiTargetPosition, stateSync.aiTargetRotationY);
+        aiPlayer.updateRemote(delta, stateSync.aiTargetPosition, stateSync.aiTargetRotationY, stateSync.aiVelocity);
 
         remotePlayers.forEach((remoteState) => {
-            remoteState.player.updateRemote(delta, remoteState.targetPosition, remoteState.targetRotationY);
+            remoteState.player.updateRemote(delta, remoteState.targetPosition, remoteState.targetRotationY, remoteState.velocity);
         });
 
         syncSoccerBallCarrierVisual();

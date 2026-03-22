@@ -71,6 +71,31 @@ function createAiGameRoutes(aiGameEngine) {
     }
   });
 
+  router.get('/init', async (req, res, next) => {
+    try {
+      res.set('Cache-Control', 'no-store');
+      res.json(await aiGameEngine.getInitState(req.authUser));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/leaderboard', async (req, res, next) => {
+    try {
+      res.json(aiGameEngine.getLeaderboardState());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/chat', async (req, res, next) => {
+    try {
+      res.json(aiGameEngine.getChatState(req.authUser));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/public-state', async (req, res, next) => {
     try {
       res.set('Cache-Control', 'no-store, no-cache, must-revalidate');

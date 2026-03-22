@@ -620,8 +620,8 @@ async function insertChatMessage({
   return result.rows[0] || null;
 }
 
-async function getRecentVisibleChatMessages(limit = 20) {
-  const normalizedLimit = Math.max(1, Math.min(50, Math.trunc(limit) || 20));
+async function getRecentVisibleChatMessages(limit = 50) {
+  const normalizedLimit = Math.max(1, Math.min(100, Math.trunc(limit) || 50));
   const result = await getPool().query(
     `
       SELECT

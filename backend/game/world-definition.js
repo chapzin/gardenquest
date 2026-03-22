@@ -456,6 +456,75 @@ function getPublicWorldState(worldState) {
   };
 }
 
+function getStaticWorldState(worldState) {
+  return {
+    bounds: worldState.bounds,
+    lake: {
+      id: worldState.lake.id,
+      type: worldState.lake.type,
+      position: clonePoint(worldState.lake.position),
+      radius: worldState.lake.radius,
+    },
+    house: {
+      id: worldState.house.id,
+      type: worldState.house.type,
+      position: clonePoint(worldState.house.position),
+      width: worldState.house.width,
+      depth: worldState.house.depth,
+      wallHeight: worldState.house.wallHeight,
+      wallThickness: worldState.house.wallThickness,
+      doorWidth: worldState.house.doorWidth,
+      doorHeight: worldState.house.doorHeight,
+      collisionBoxes: worldState.house.walls.map(cloneRect),
+    },
+    soccer: {
+      field: cloneSoccerState(worldState.soccer).field,
+    },
+    appleLayout: APPLE_OFFSETS.map(clonePoint),
+  };
+}
+
+function getDynamicWorldState(worldState) {
+  const soccerState = worldState.soccer;
+  return {
+    trees: worldState.trees.map((tree) => ({
+      id: tree.id,
+      position: clonePoint(tree.position),
+      applesRemaining: tree.applesRemaining,
+    })),
+    droppedApples: Array.isArray(worldState.droppedApples)
+      ? worldState.droppedApples.map(cloneDroppedApple)
+      : [],
+    soccer: {
+      ball: {
+        position: clonePoint(soccerState?.ball?.position),
+        velocity: clonePoint(soccerState?.ball?.velocity),
+        radius: Number(soccerState?.ball?.radius) || SOCCER_FIELD.ballRadius,
+        inGoal: soccerState?.ball?.inGoal === 'north' || soccerState?.ball?.inGoal === 'south'
+          ? soccerState.ball.inGoal
+          : null,
+        lastTouchedByActorId: typeof soccerState?.ball?.lastTouchedByActorId === 'string'
+          ? soccerState.ball.lastTouchedByActorId
+          : '',
+        lastTouchedByActorName: typeof soccerState?.ball?.lastTouchedByActorName === 'string'
+          ? soccerState.ball.lastTouchedByActorName
+          : '',
+        possessedByActorId: typeof soccerState?.ball?.possessedByActorId === 'string'
+          ? soccerState.ball.possessedByActorId
+          : '',
+        possessedByActorName: typeof soccerState?.ball?.possessedByActorName === 'string'
+          ? soccerState.ball.possessedByActorName
+          : '',
+      },
+      restartAt: Number(soccerState?.restartAt) || 0,
+      lastGoalEvent: cloneSoccerGoalEvent(soccerState?.lastGoalEvent),
+    },
+    graves: Array.isArray(worldState.graves)
+      ? worldState.graves.map(cloneGrave)
+      : [],
+  };
+}
+
 module.exports = {
   APPLE_OFFSETS,
   HOUSE,
@@ -465,7 +534,9 @@ module.exports = {
   WORLD_BOUNDS,
   TREE_POSITIONS,
   createWorldState,
+  getDynamicWorldState,
   getPublicWorldState,
+  getStaticWorldState,
   getTargetById,
   isPositionBlocked,
   resolveWalkablePosition,

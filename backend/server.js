@@ -1,16 +1,22 @@
+const http = require('http');
 const express = require('express');
+const compression = require('compression');
 const { setupSecurity } = require('./middleware/security');
 const createAuthRoutes = require('./routes/auth');
 const createAiGameRoutes = require('./routes/ai-game');
 const config = require('./config');
 const { verifyDatabaseConnection } = require('./database/postgres');
 const { AiGameEngine } = require('./game/engine');
+const { createGameWebSocket } = require('./ws/game-socket');
 
 const app = express();
 const aiGameEngine = new AiGameEngine();
 
 // Trust Cloud Run proxy for secure cookies
 app.set('trust proxy', 1);
+
+// Compression middleware
+app.use(compression({ threshold: 512 }));
 
 // Security middleware
 setupSecurity(app);
@@ -49,7 +55,10 @@ async function startServer() {
     process.exit(1);
   }
 
-  app.listen(config.PORT, '0.0.0.0', () => {
+  const server = http.createServer(app);
+  const gameWs = createGameWebSocket(server, aiGameEngine);
+
+  server.listen(config.PORT, '0.0.0.0', () => {
     console.log(`Backend running on port ${config.PORT}`);
     console.log(`Runtime mode: ${config.NODE_ENV}`);
     console.log(`App environment: ${config.APP_ENV}`);
@@ -58,6 +67,7 @@ async function startServer() {
     }
     console.log(`Frontend URL: ${config.FRONTEND_URL || '(unset)'}`);
     console.log(`AI player: ${config.AI_GAME_ENABLED ? 'enabled' : 'disabled'}`);
+    console.log(`WebSocket: ws://0.0.0.0:${config.PORT}/ws/game`);
 
     if (!config.GOOGLE_CLIENT_ID) {
       console.error('WARNING: GOOGLE_CLIENT_ID is not set. Google Login will not work.');
@@ -66,6 +76,22 @@ async function startServer() {
     }
 
     aiGameEngine.start();
+
+    // Broadcast state to WebSocket clients every engine tick
+    const tickMs = config.AI_SIMULATION_TICK_MS || 250;
+    setInterval(() => {
+      gameWs.broadcastState();
+    }, tickMs);
+
+    // Broadcast chat at lower frequency
+    setInterval(() => {
+      gameWs.broadcastChat();
+    }, 1000);
+
+    // Broadcast leaderboard at low frequency
+    setInterval(() => {
+      gameWs.broadcastLeaderboard();
+    }, 5000);
   });
 }
 

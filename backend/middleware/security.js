@@ -13,6 +13,11 @@ function buildJsonRateLimiter({ windowMs, max, error, scope, skip }) {
     standardHeaders: true,
     legacyHeaders: false,
     skip,
+    keyGenerator: (req) => {
+      const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip || 'unknown';
+      const userId = req.authUser?.id || '';
+      return `${scope}:${ip}:${userId}`;
+    },
     handler: (req, res, next, options) => {
       const resetTime = req.rateLimit?.resetTime instanceof Date
         ? req.rateLimit.resetTime.getTime() - Date.now()

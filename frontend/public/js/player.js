@@ -223,7 +223,7 @@ class Player {
         this._updateAnimation(delta);
     }
 
-    updateRemote(delta, targetPosition, targetRotationY = this.group.rotation.y) {
+    updateRemote(delta, targetPosition, targetRotationY = this.group.rotation.y, velocity) {
         this._updateJump(delta);
         if (!targetPosition) {
             this.isWalking = false;
@@ -232,11 +232,16 @@ class Player {
         }
 
         this.groundY = targetPosition.y ?? 0;
-        const dx = targetPosition.x - this.group.position.x;
-        const dz = targetPosition.z - this.group.position.z;
+        // Extrapolate target using velocity for smoother movement
+        const extX = targetPosition.x + (velocity?.x || 0) * delta * 0.5;
+        const extZ = targetPosition.z + (velocity?.z || 0) * delta * 0.5;
+
+        const dx = extX - this.group.position.x;
+        const dz = extZ - this.group.position.z;
         const distance = Math.sqrt((dx * dx) + (dz * dz));
 
-        this.isWalking = distance > 0.04;
+        const speed = Math.sqrt((velocity?.x || 0) ** 2 + (velocity?.z || 0) ** 2);
+        this.isWalking = speed > 0.5;
 
         const positionLerp = Math.min(1, delta * 6);
         this.group.position.x += dx * positionLerp;

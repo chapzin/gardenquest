@@ -44,6 +44,12 @@ coverage/
 *.jks
 *.keystore
 
+# Claude Code (project-level skills and config)
+.claude/
+.agents/
+.agent/
+.windsurf/
+
 # Auxiliares
 auxiliares/
 !legacy/auxiliares/

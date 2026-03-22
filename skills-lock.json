@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "skills": {
+    "api-security-best-practices": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "ce16d10df486a28a3ba894d646de3243fc2bf9990f563fc7a9b074fd720e24d5"
+    },
+    "docker-expert": {
+      "source": "personamanagmentlayer/pcl",
+      "sourceType": "github",
+      "computedHash": "fe01be30b29e4fe819a7642919a993890ace47969d0d48b109bbd1d64216c09b"
+    },
+    "gcp-cloud-run": {
+      "source": "aj-geddes/useful-ai-prompts",
+      "sourceType": "github",
+      "computedHash": "24a89817c5df348aea59b070e7b348042031af123f64862f1d90b63d47fe5a32"
+    },
+    "nginx-configuration": {
+      "source": "aj-geddes/useful-ai-prompts",
+      "sourceType": "github",
+      "computedHash": "30535fb54fb19ddcbad3697da291fbd22ea60f0c245d55be41ae9043f68bfd4a"
+    },
+    "openai-api-development": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "computedHash": "6829504dc0198d8176c8b5017eef933e0f31d5b8f60250d00a186299fe2449a1"
+    },
+    "three-best-practices": {
+      "source": "emalorenzo/three-agent-skills",
+      "sourceType": "github",
+      "computedHash": "d135429cf44ae2fe06e6403b0fb417eaeb8c328641308b1b615e85a130c73794"
+    },
+    "websocket-engineer": {
+      "source": "404kidwiz/claude-supercode-skills",
+      "sourceType": "github",
+      "computedHash": "248e31e3bcf3b1f6606ed0cce211e24b98cd8e7ea16ee8725326899e3c6350b8"
+    }
+  }
+}

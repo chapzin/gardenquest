@@ -13,7 +13,9 @@ const {
 const { createOpenAiDecisionClient } = require('../services/openai-client');
 const {
   createWorldState,
+  getDynamicWorldState,
   getPublicWorldState,
+  getStaticWorldState,
   getTargetById,
   LAKE,
   PLAYER_COLLISION_RADIUS,
@@ -50,7 +52,7 @@ const LEADERBOARD_LIMIT = 10;
 const LEADERBOARD_REFRESH_MS = 10000;
 const PLAYER_NICKNAME_MAX_LENGTH = 24;
 const DEFAULT_PLAYER_OUTFIT_COLOR = '#2563eb';
-const PLAYER_CHAT_HISTORY_LIMIT = 20;
+const PLAYER_CHAT_HISTORY_LIMIT = 50;
 const DEFAULT_CHAT_BLOCKED_WORDS = Object.freeze([
   'merda',
   'porra',
@@ -717,6 +719,19 @@ class AiGameEngine {
     }
   }
 
+  async getInitState(user) {
+    const player = await this.touchPlayerSession(user);
+    return {
+      settings: {
+        playerMoveSpeed: config.PLAYER_MOVE_SPEED,
+        playerRunSpeed: config.PLAYER_RUN_SPEED,
+        chatMaxChars: config.PLAYER_CHAT_MAX_CHARS,
+        nicknameMaxChars: PLAYER_NICKNAME_MAX_LENGTH,
+      },
+      world: getStaticWorldState(this.state.world),
+    };
+  }
+
   async getPublicState(user) {
     const player = await this.touchPlayerSession(user);
     const now = Date.now();
@@ -726,18 +741,16 @@ class AiGameEngine {
     return {
       serverTime: new Date(now).toISOString(),
       tick: this.state.tick,
-      settings: {
-        playerMoveSpeed: config.PLAYER_MOVE_SPEED,
-        playerRunSpeed: config.PLAYER_RUN_SPEED,
-        chatMaxChars: config.PLAYER_CHAT_MAX_CHARS,
-        nicknameMaxChars: PLAYER_NICKNAME_MAX_LENGTH,
-      },
       self: player ? this.buildSelfState(player, now) : null,
       players: Array.from(this.state.players.values())
-        .map((candidate) => this.buildPublicPlayerState(candidate, now))
-        .sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')),
+        .map((candidate) => this.buildPublicPlayerState(candidate, now)),
       ai: this.buildAiPublicState(now),
-      world: getPublicWorldState(this.state.world),
+      world: getDynamicWorldState(this.state.world),
+    };
+  }
+
+  getLeaderboardState() {
+    return {
       leaderboard: {
         updatedAt: this.state.leaderboardLastUpdatedAt
           ? new Date(this.state.leaderboardLastUpdatedAt).toISOString()
@@ -763,15 +776,20 @@ class AiGameEngine {
           soccerGoals: entry.soccerGoals,
         })),
       },
-      playerChat: {
-        entries: this.state.playerChat.map((entry) => ({
-          id: entry.id,
-          isSelf: entry.playerId === player?.id,
-          playerName: entry.playerName,
-          message: entry.message,
-          createdAt: new Date(entry.createdAt).toISOString(),
-        })),
-      },
+    };
+  }
+
+  getChatState(user) {
+    const playerId = user?.id || null;
+    return {
+      entries: this.state.playerChat.map((entry) => ({
+        id: entry.id,
+        type: entry.type || 'player',
+        isSelf: entry.playerId === playerId,
+        playerName: entry.playerName,
+        message: entry.message,
+        createdAt: entry.createdAt,
+      })),
     };
   }
 
@@ -1179,6 +1197,7 @@ class AiGameEngine {
 
     this.state.playerChat.push({
       id: persistedEntry.id,
+      type: 'player',
       playerId: persistedEntry.userId,
       playerName: persistedEntry.playerName,
       message: persistedEntry.message,
@@ -1190,6 +1209,22 @@ class AiGameEngine {
     }
 
     return { ok: true };
+  }
+
+  appendNpcChatEntry(message) {
+    const npcName = this.state.ai?.name || config.AI_AGENT_NAME || 'Jardineiro IA';
+    this.state.playerChat.push({
+      id: Date.now(),
+      type: 'npc',
+      playerId: this.state.ai?.id || 'ai',
+      playerName: npcName,
+      message,
+      createdAt: Date.now(),
+    });
+
+    if (this.state.playerChat.length > PLAYER_CHAT_HISTORY_LIMIT) {
+      this.state.playerChat.splice(0, this.state.playerChat.length - PLAYER_CHAT_HISTORY_LIMIT);
+    }
   }
 
   updatePlayerProfile(player, profile) {
@@ -1698,6 +1733,7 @@ class AiGameEngine {
     if (decision.speech) {
       this.state.ai.speech = decision.speech;
       this.state.ai.speechExpiresAt = now + 4000;
+      this.appendNpcChatEntry(decision.speech);
     }
 
     switch (decision.action) {
@@ -2458,6 +2494,7 @@ class AiGameEngine {
     const recentMessages = await getRecentVisibleChatMessages(PLAYER_CHAT_HISTORY_LIMIT);
     this.state.playerChat = recentMessages.map((entry) => ({
       id: entry.id,
+      type: 'player',
       playerId: entry.userId,
       playerName: entry.playerName || 'Jogador',
       message: entry.message,

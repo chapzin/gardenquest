@@ -290,6 +290,23 @@ function createAuthRoutes({ gameEngine = null } = {}) {
     }
   });
 
+  if (config.APP_ENV === 'local') {
+    router.get('/dev-login', async (req, res) => {
+      const devUser = {
+        id: 'dev-local-user-001',
+        name: req.query?.name || 'Dev Player',
+        email: 'dev@localhost',
+        picture: '',
+      };
+
+      await syncUserRecord(devUser);
+
+      const jwtToken = jwt.sign(devUser, config.JWT_SECRET, { expiresIn: config.JWT_EXPIRES_IN });
+      res.cookie(AUTH_COOKIE_NAME, jwtToken, getCookieOptions());
+      res.redirect(getFrontendUrl('/game.html'));
+    });
+  }
+
   router.get('/me', async (req, res) => {
     const token = req.cookies?.[AUTH_COOKIE_NAME];
     if (!token) {
